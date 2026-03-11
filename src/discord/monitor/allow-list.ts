@@ -6,6 +6,7 @@ import {
   resolveChannelMatchConfig,
   type ChannelMatchSource,
 } from "../../channels/channel-config.js";
+import { evaluateGroupRouteAccessForPolicy } from "../../plugin-sdk/group-access.js";
 import { formatDiscordUserTag } from "./format.js";
 
 export type DiscordAllowList = {
@@ -22,6 +23,7 @@ export type DiscordGuildEntryResolved = {
   id?: string;
   slug?: string;
   requireMention?: boolean;
+  ignoreOtherMentions?: boolean;
   reactionNotifications?: "off" | "own" | "all" | "allowlist";
   users?: string[];
   roles?: string[];
@@ -30,6 +32,7 @@ export type DiscordGuildEntryResolved = {
     {
       allow?: boolean;
       requireMention?: boolean;
+      ignoreOtherMentions?: boolean;
       skills?: string[];
       enabled?: boolean;
       users?: string[];
@@ -37,6 +40,7 @@ export type DiscordGuildEntryResolved = {
       systemPrompt?: string;
       includeThreadStarter?: boolean;
       autoThread?: boolean;
+      autoArchiveDuration?: "60" | "1440" | "4320" | "10080" | 60 | 1440 | 4320 | 10080;
     }
   >;
 };
@@ -44,6 +48,7 @@ export type DiscordGuildEntryResolved = {
 export type DiscordChannelConfigResolved = {
   allowed: boolean;
   requireMention?: boolean;
+  ignoreOtherMentions?: boolean;
   skills?: string[];
   enabled?: boolean;
   users?: string[];
@@ -51,6 +56,7 @@ export type DiscordChannelConfigResolved = {
   systemPrompt?: string;
   includeThreadStarter?: boolean;
   autoThread?: boolean;
+  autoArchiveDuration?: "60" | "1440" | "4320" | "10080" | 60 | 1440 | 4320 | 10080;
   matchKey?: string;
   matchSource?: ChannelMatchSource;
 };
@@ -389,6 +395,7 @@ function resolveDiscordChannelConfigEntry(
   const resolved: DiscordChannelConfigResolved = {
     allowed: entry.allow !== false,
     requireMention: entry.requireMention,
+    ignoreOtherMentions: entry.ignoreOtherMentions,
     skills: entry.skills,
     enabled: entry.enabled,
     users: entry.users,
@@ -396,6 +403,7 @@ function resolveDiscordChannelConfigEntry(
     systemPrompt: entry.systemPrompt,
     includeThreadStarter: entry.includeThreadStarter,
     autoThread: entry.autoThread,
+    autoArchiveDuration: entry.autoArchiveDuration,
   };
   return resolved;
 }
@@ -508,20 +516,18 @@ export function isDiscordGroupAllowedByPolicy(params: {
   channelAllowlistConfigured: boolean;
   channelAllowed: boolean;
 }): boolean {
-  const { groupPolicy, guildAllowlisted, channelAllowlistConfigured, channelAllowed } = params;
-  if (groupPolicy === "disabled") {
+  if (params.groupPolicy === "allowlist" && !params.guildAllowlisted) {
     return false;
   }
-  if (groupPolicy === "open") {
-    return true;
-  }
-  if (!guildAllowlisted) {
-    return false;
-  }
-  if (!channelAllowlistConfigured) {
-    return true;
-  }
-  return channelAllowed;
+
+  return evaluateGroupRouteAccessForPolicy({
+    groupPolicy:
+      params.groupPolicy === "allowlist" && !params.channelAllowlistConfigured
+        ? "open"
+        : params.groupPolicy,
+    routeAllowlistConfigured: params.channelAllowlistConfigured,
+    routeMatched: params.channelAllowed,
+  }).allowed;
 }
 
 export function resolveGroupDmAllow(params: {
